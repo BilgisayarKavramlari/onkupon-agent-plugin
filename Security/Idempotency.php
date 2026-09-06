@@ -1,0 +1,2 @@
+<?php
+namespace OnKupon\Agent\Security; class Idempotency { public function key(string $type,array $data): string { return hash("sha256",$type.wp_json_encode($data)); } public function seen(string $key): bool { return (bool)get_transient("oka_idem_".$key); } public function remember(string $key,int $ttl=DAY_IN_SECONDS): void { set_transient("oka_idem_".$key,1,$ttl); } }

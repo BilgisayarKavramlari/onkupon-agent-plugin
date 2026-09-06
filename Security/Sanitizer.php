@@ -1,0 +1,2 @@
+<?php
+namespace OnKupon\Agent\Security; class Sanitizer { public static function text($v): string { return sanitize_text_field(wp_unslash($v)); } public static function html($v): string { return wp_kses_post($v); } }

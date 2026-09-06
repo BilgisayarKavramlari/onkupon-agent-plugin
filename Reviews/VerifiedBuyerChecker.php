@@ -1,0 +1,2 @@
+<?php
+namespace OnKupon\Agent\Reviews; class VerifiedBuyerChecker { public function is_verified(int $customer_id,int $product_id): bool { return function_exists("wc_customer_bought_product") ? wc_customer_bought_product("",$customer_id,$product_id) : false; } }

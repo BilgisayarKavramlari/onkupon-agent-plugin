@@ -1,0 +1,2 @@
+<?php
+namespace OnKupon\Agent\Security; class RateLimiter { public function allow(string $key,int $limit=60,int $window=3600): bool { $t="oka_rl_".md5($key); $data=get_transient($t)?:[0,time()]; if(time()-$data[1]>$window)$data=[0,time()]; if($data[0]>=$limit)return false; $data[0]++; set_transient($t,$data,$window); return true; } }
