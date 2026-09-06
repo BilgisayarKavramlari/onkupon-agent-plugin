@@ -1,0 +1,1 @@
+document.addEventListener("DOMContentLoaded",()=>{if(window.OnKuponMiniChart)window.OnKuponMiniChart();});

@@ -1,0 +1,2 @@
+<?php
+namespace OnKupon\Agent\Analytics; class MetricsRepository { public function record(string $object_type,int $object_id,string $platform,string $name,float $value,array $meta=[]): void { global $wpdb; $wpdb->insert($wpdb->prefix.'onkupon_agent_metrics',['object_type'=>$object_type,'object_id'=>$object_id,'platform'=>$platform,'metric_name'=>$name,'metric_value'=>$value,'measured_at'=>current_time('mysql'),'metadata_json'=>wp_json_encode($meta)]); } }

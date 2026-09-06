@@ -1,0 +1,1 @@
+window.OnKuponMiniChart=function(){const c=document.getElementById("okaChart");if(!c)return;const x=c.getContext("2d");x.fillStyle="#2271b1";[20,40,30,60,50].forEach((h,i)=>x.fillRect(20+i*40,80-h,24,h));};
