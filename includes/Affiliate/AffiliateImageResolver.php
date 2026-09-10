@@ -24,6 +24,12 @@ class AffiliateImageResolver {
     private const MIN_SCREENSHOT_BYTES = 18000;
     private const MIN_WIDTH = 200;
 
+    /** Tek senkron turunda yapilacak gorsel cozumleme sayisi. */
+    private const PER_RUN_LIMIT = 6;
+    private const RETRY_AFTER = 12 * HOUR_IN_SECONDS;
+
+    private static int $processed = 0;
+
     public function ensure( int $product_id, array $program ): int {
         $product = wc_get_product( $product_id );
         if ( ! $product ) {
@@ -34,6 +40,15 @@ class AffiliateImageResolver {
         if ( $current && ! $this->is_generated_card( $current ) ) {
             return $current;
         }
+
+        $checked_at = (string) get_post_meta( $product_id, self::META_CHECKED, true );
+        if ( $checked_at && ( time() - (int) strtotime( $checked_at ) ) < self::RETRY_AFTER ) {
+            return $current;
+        }
+        if ( self::$processed >= self::PER_RUN_LIMIT ) {
+            return $current;
+        }
+        ++self::$processed;
 
         $destination = $this->final_url( (string) get_post_meta( $product_id, '_onkupon_affiliate_destination', true ) );
         $name = (string) $product->get_name();

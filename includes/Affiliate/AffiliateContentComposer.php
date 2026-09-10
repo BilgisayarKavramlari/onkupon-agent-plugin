@@ -22,6 +22,11 @@ class AffiliateContentComposer {
     public const META_OFFER_TERMS  = '_onkupon_partnerstack_offer_terms';
     public const META_PRESERVE     = '_onkupon_affiliate_preserve_editorial';
 
+    /** Tek senkron turunda uretilecek en fazla urun metni. */
+    private const PER_RUN_LIMIT = 6;
+
+    private static int $composed_in_run = 0;
+
     public const DISCLOSURE = 'Bu harici bağlantı üzerinden yapılan uygun işlemlerden komisyon kazanabiliriz. Fiyat, kapsam ve koşullar hizmet sağlayıcıya aittir.';
 
     /**
@@ -133,6 +138,11 @@ class AffiliateContentComposer {
         if ( '' === $brand ) {
             return [];
         }
+
+        if ( self::$composed_in_run >= self::PER_RUN_LIMIT ) {
+            return [];
+        }
+        ++self::$composed_in_run;
 
         $source_text = self::redact( (string) ( $program['description'] ?? '' ) );
         $facts = $this->destination_facts( $destination_url );
