@@ -2,7 +2,7 @@
 /**
  * Plugin Name: OnKupon Autonomous Commerce Content Agent
  * Description: Autonomous AI content, social, analytics, learning, and verified-review integrity agent for WooCommerce marketplaces.
- * Version: 0.6.0
+ * Version: 0.6.1
  * Requires PHP: 8.1
  * Requires Plugins: woocommerce
  * Author: OnKupon

@@ -25,7 +25,7 @@ class PartnershipNormalizer {
             2000
         );
         $status = strtolower( $this->first_string( [ $item['status'] ?? '', $item['state'] ?? '', $company['status'] ?? '' ] ) );
-        $inactive = in_array( $status, [ 'archived', 'inactive', 'disabled', 'rejected', 'declined', 'canceled', 'cancelled' ], true );
+        $inactive = in_array( $status, [ 'archived', 'inactive', 'disabled', 'rejected', 'declined', 'canceled', 'cancelled', 'suspended', 'paused', 'on_hold', 'on hold', 'terminated', 'ended', 'expired', 'revoked', 'closed', 'churned', 'deactivated' ], true );
         $active = empty( $item['archived'] ) && empty( $item['is_archived'] ) && ! $inactive;
         $url = $this->referral_url( $item, $company );
         $logo = $this->https_url( $this->first_string( [ $company['logo_url'] ?? '', $company['logo'] ?? '', $program['logo_url'] ?? '' ] ) );

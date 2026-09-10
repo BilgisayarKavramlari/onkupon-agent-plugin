@@ -144,7 +144,13 @@ class SitemapAuditor {
         }
 
         return array_map(
-            static fn( $loc ): string => esc_url_raw( html_entity_decode( trim( (string) $loc ) ) ),
+            static function ( $loc ): string {
+                $loc = trim( (string) $loc );
+                if ( 0 === strpos( $loc, '<![CDATA[' ) ) {
+                    $loc = trim( substr( $loc, 9, -3 ) );
+                }
+                return esc_url_raw( html_entity_decode( $loc ) );
+            },
             $matches[1]
         );
     }
