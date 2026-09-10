@@ -59,17 +59,15 @@ class AffiliateProductImporter {
         $fallback_description = trim( implode( "\n\n", array_filter( [ $description, $disclosure ] ) ) );
 
         $composer = new AffiliateContentComposer();
-        $composed = [];
-        if ( ! $preserve_editorial && ( $created || $managed ) && $composer->needs_content( $existing_id ? $product : null, $program ) ) {
-            $composed = $composer->compose( $program, $referral_url );
-        }
+        $needs_content = ! $preserve_editorial && ( $created || $managed ) && $composer->needs_content( $existing_id ? $product : null, $program );
+        $composed = $needs_content ? $composer->compose( $program, $referral_url ) : [];
 
         if ( $composed ) {
             $product->set_name( sanitize_text_field( (string) $composed['title'] ) );
             $product->set_catalog_visibility( 'visible' );
             $product->set_short_description( wp_kses_post( (string) $composed['short'] ) );
             $product->set_description( wp_kses_post( (string) $composed['long'] ) );
-        } elseif ( $created || ( $managed && ! $preserve_editorial ) ) {
+        } elseif ( $needs_content ) {
             $product->set_name( $name );
             $product->set_catalog_visibility( 'visible' );
             $product->set_short_description( AffiliateContentComposer::redact( wp_trim_words( $description ?: $disclosure, 45, '' ) ) );
