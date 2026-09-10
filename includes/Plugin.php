@@ -32,6 +32,7 @@ class Plugin {
         ( new SocialOAuthManager() )->register_routes();
         ( new \OnKupon\Agent\Affiliate\ProgramDecisionController() )->register();
         ( new AffiliateClickTracker() )->register();
+        ( new \OnKupon\Agent\Affiliate\AffiliateDisclosureNotice() )->register();
         ( new AffiliateEditorialProtection() )->register();
         ( new AffiliateProductSocialPlanner() )->register();
         ( new AutonomousConversionOptimizer() )->register();

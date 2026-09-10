@@ -105,6 +105,22 @@ class AffiliateContentComposer {
         return false;
     }
 
+    /**
+     * Eski surumlerin aciklama govdesine yazdigi is ortakligi bildirimini
+     * temizler. Bildirim kaldirilmaz, yalnizca yerini degistirir.
+     */
+    public static function strip_disclosure( string $html ): string {
+        $needles = [
+            '<p>' . esc_html( self::DISCLOSURE ) . '</p>',
+            '<p>' . self::DISCLOSURE . '</p>',
+            self::DISCLOSURE,
+        ];
+        foreach ( $needles as $needle ) {
+            $html = str_replace( $needle, '', $html );
+        }
+        return trim( preg_replace( '/(\R\s*){3,}/u', "\n\n", $html ) ?: $html );
+    }
+
     public static function contains_confidential( string $text ): bool {
         return self::redact( $text ) !== trim( (string) $text );
     }
@@ -229,9 +245,12 @@ class AffiliateContentComposer {
         }
         if ( '' !== $audience ) {
             $html .= '<p>Kimler için uygun?</p>' . "\n";
-            $html .= '<p>' . esc_html( $audience ) . '</p>' . "\n";
+            $html .= '<p>' . esc_html( $audience ) . '</p>';
         }
-        $html .= '<p>' . esc_html( self::DISCLOSURE ) . '</p>';
+
+        // Is ortakligi bildirimi artik aciklama govdesine yazilmaz; urun
+        // sayfasinda baglantinin altinda ayri bir not olarak gosterilir.
+        $html = trim( $html );
 
         $tags = [];
         foreach ( (array) ( $data['tags'] ?? [] ) as $tag ) {

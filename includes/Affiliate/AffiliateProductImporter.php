@@ -87,6 +87,10 @@ class AffiliateProductImporter {
                 $product->set_short_description( AffiliateContentComposer::redact( $current_short ) );
             }
         }
+        // Eski surumlerin govdeye yazdigi bildirim her senkronda temizlenir.
+        $product->set_description( AffiliateContentComposer::strip_disclosure( (string) $product->get_description() ) );
+        $product->set_short_description( AffiliateContentComposer::strip_disclosure( (string) $product->get_short_description() ) );
+
         $product->set_product_url( $referral_url );
         $product->set_button_text( sanitize_text_field( (string) ( $settings['partnerstack_button_text'] ?? 'Ürünü incele' ) ) );
         if ( $created ) {
