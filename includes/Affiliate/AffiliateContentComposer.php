@@ -97,6 +97,14 @@ class AffiliateContentComposer {
     }
 
     public static function is_confidential( string $sentence ): bool {
+        // Kendi is ortakligi bildirimimiz "komisyon" kelimesini icerir ve
+        // suzgece takilir. Bu cumle gizli bir sart degil, aksine kamuya acik
+        // olmasi gereken bildirimin ta kendisidir; muaf tutulur.
+        $normalized = trim( wp_strip_all_tags( $sentence ) );
+        if ( '' !== $normalized && false !== mb_strpos( self::DISCLOSURE, $normalized ) ) {
+            return false;
+        }
+
         foreach ( self::CONFIDENTIAL_PATTERNS as $pattern ) {
             if ( preg_match( $pattern, $sentence ) ) {
                 return true;
