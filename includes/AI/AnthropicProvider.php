@@ -93,8 +93,6 @@ class AnthropicProvider implements AIProviderInterface {
         ];
 
         // Anthropic sıcaklığı 0-1 aralığında kabul eder.
-        $temperature = (float) ( $this->settings['openai_temperature'] ?? 0.3 );
-        $body['temperature'] = max( 0.0, min( 1.0, $temperature ) );
 
         if ( $json_mode ) {
             $body['tools'] = [
