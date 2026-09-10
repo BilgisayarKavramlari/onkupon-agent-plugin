@@ -30,6 +30,10 @@ class AffiliateImageResolver {
 
     private static int $processed = 0;
 
+    public static function reset_run(): void {
+        self::$processed = 0;
+    }
+
     public function ensure( int $product_id, array $program ): int {
         $product = wc_get_product( $product_id );
         if ( ! $product ) {
@@ -53,15 +57,26 @@ class AffiliateImageResolver {
         $destination = $this->final_url( (string) get_post_meta( $product_id, '_onkupon_affiliate_destination', true ) );
         $name = (string) $product->get_name();
 
+        $attachments = [];
+        $sources = [];
         foreach ( $this->candidates( $destination, $program ) as $candidate ) {
             $attachment_id = $this->sideload( $candidate['url'], $product_id, $name, $candidate['source'] );
             if ( $attachment_id ) {
-                $product->set_image_id( $attachment_id );
-                $product->save();
-                update_post_meta( $product_id, self::META_SOURCE, $candidate['source'] );
-                update_post_meta( $product_id, self::META_CHECKED, current_time( 'mysql' ) );
-                return $attachment_id;
+                $attachments[] = $attachment_id;
+                $sources[] = $candidate['source'];
             }
+        }
+
+        if ( $attachments ) {
+            // Ilk aday one cikan gorsel olur; kalanlar urun galerisine girer.
+            $featured = (int) array_shift( $attachments );
+            $product->set_image_id( $featured );
+            $gallery = array_values( array_unique( array_merge( array_map( 'absint', (array) $product->get_gallery_image_ids() ), array_map( 'absint', $attachments ) ) ) );
+            $product->set_gallery_image_ids( array_slice( $gallery, 0, 5 ) );
+            $product->save();
+            update_post_meta( $product_id, self::META_SOURCE, implode( ',', $sources ) );
+            update_post_meta( $product_id, self::META_CHECKED, current_time( 'mysql' ) );
+            return $featured;
         }
 
         update_post_meta( $product_id, self::META_CHECKED, current_time( 'mysql' ) );

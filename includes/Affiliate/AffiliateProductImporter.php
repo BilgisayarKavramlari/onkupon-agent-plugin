@@ -109,6 +109,7 @@ class AffiliateProductImporter {
         update_post_meta( $product_id, '_onkupon_affiliate_destination', $referral_url );
         update_post_meta( $product_id, '_onkupon_affiliate_source_hash', sanitize_text_field( (string) ( $program['source_hash'] ?? '' ) ) );
         update_post_meta( $product_id, '_onkupon_affiliate_last_synced_at', current_time( 'mysql' ) );
+        update_post_meta( $product_id, '_onkupon_affiliate_brand', $name );
         if ( $existing_id && ! $managed ) {
             update_post_meta( $product_id, '_onkupon_affiliate_preserve_editorial', 1 );
         }
@@ -147,10 +148,19 @@ class AffiliateProductImporter {
             return array_map( 'absint', (array) $composed['category_ids'] );
         }
 
+        // Urunun halihazirdaki kategorileri yalnizca sitenin egitim tarafina
+        // aitse bunlar bir dijital arac icin anlamli sayilmaz.
+        $excluded = [];
+        foreach ( AffiliateContentComposer::NON_PRODUCT_SLUGS as $slug ) {
+            $term = get_term_by( 'slug', $slug, 'product_cat' );
+            if ( $term && ! is_wp_error( $term ) ) {
+                $excluded[] = (int) $term->term_id;
+            }
+        }
+        $excluded[] = 0;
+
         $existing = array_map( 'absint', (array) $product->get_category_ids() );
-        $default_term = get_term_by( 'slug', 'uncategorized', 'product_cat' );
-        $default_id = ( $default_term && ! is_wp_error( $default_term ) ) ? (int) $default_term->term_id : 0;
-        $meaningful = array_values( array_diff( $existing, [ $default_id, 0 ] ) );
+        $meaningful = array_values( array_diff( $existing, $excluded ) );
         if ( $meaningful ) {
             return $meaningful;
         }
@@ -161,7 +171,7 @@ class AffiliateProductImporter {
         }
 
         $configured = absint( $settings['partnerstack_default_category_id'] ?? 0 );
-        if ( $configured && $configured !== $default_id && term_exists( $configured, 'product_cat' ) ) {
+        if ( $configured && ! in_array( $configured, $excluded, true ) && term_exists( $configured, 'product_cat' ) ) {
             return [ $configured ];
         }
 

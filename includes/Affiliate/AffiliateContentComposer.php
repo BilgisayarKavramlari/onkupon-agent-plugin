@@ -27,6 +27,17 @@ class AffiliateContentComposer {
 
     private static int $composed_in_run = 0;
 
+    /**
+     * Bir dijital arac urununun ait olamayacagi kategoriler. Bunlar sitenin
+     * egitim tarafina aittir; bir SaaS urununun burada durmasi, kategorinin
+     * hic atanmamis olmasiyla ayni anlama gelir.
+     */
+    public const NON_PRODUCT_SLUGS = [ 'uncategorized', 'egitimler', 'sertifika', 'kitap', 'sablon' ];
+
+    public static function reset_run(): void {
+        self::$composed_in_run = 0;
+    }
+
     public const DISCLOSURE = 'Bu harici bağlantı üzerinden yapılan uygun işlemlerden komisyon kazanabiliriz. Fiyat, kapsam ve koşullar hizmet sağlayıcıya aittir.';
 
     /**
@@ -165,7 +176,18 @@ class AffiliateContentComposer {
         ];
 
         $prompt = $this->prompt( $payload );
-        $data = ProviderFactory::make()->generateJson( $prompt, $this->schema() );
+        $provider = ProviderFactory::make();
+        $data = $provider->generateJson( $prompt, $this->schema() );
+
+        // Model ara sira use_cases alanini dizi yerine metin donduruyor ve sema
+        // dogrulamasi hakli olarak reddediyor. Bir kez daha, bicim uyarisi
+        // eklenmis halde denenir; bu, tek seferlik bicim hatalarini kapatir.
+        if ( ! is_array( $data ) || empty( $data['intro'] ) ) {
+            $data = $provider->generateJson(
+                $prompt . "\n\nBICIM UYARISI: use_cases, category_slugs ve tags alanlari MUTLAKA JSON dizisi olmalidir; tek bir metin veya satir sonuyla ayrilmis liste kabul edilmez.",
+                $this->schema()
+            );
+        }
 
         if ( ! is_array( $data ) || empty( $data['intro'] ) ) {
             ( new Logger() )->log( 'warning', 'affiliate', 'Affiliate content composition returned no payload', [ 'brand' => $brand ] );
@@ -371,7 +393,7 @@ PROMPT;
 
         $options = [];
         foreach ( $terms as $term ) {
-            if ( 'uncategorized' === $term->slug ) {
+            if ( in_array( $term->slug, self::NON_PRODUCT_SLUGS, true ) ) {
                 continue;
             }
             $options[] = [ 'slug' => $term->slug, 'name' => $term->name ];
@@ -387,7 +409,7 @@ PROMPT;
         $ids = [];
         foreach ( $slugs as $slug ) {
             $slug = sanitize_title( (string) $slug );
-            if ( '' === $slug || 'uncategorized' === $slug ) {
+            if ( '' === $slug || in_array( $slug, self::NON_PRODUCT_SLUGS, true ) ) {
                 continue;
             }
             $term = get_term_by( 'slug', $slug, 'product_cat' );

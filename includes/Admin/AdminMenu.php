@@ -147,6 +147,9 @@ class AdminMenu {
             case 'run-affiliate-sync-now':
                 $bridge->enqueue( 'onkupon_agent_affiliate_sync' );
                 break;
+            case 'run-affiliate-enrichment-now':
+                ( new \OnKupon\Agent\Affiliate\AffiliateEnrichmentService() )->run();
+                break;
             case 'run-revenue-link-audit-now':
                 $bridge->enqueue( 'onkupon_agent_revenue_link_audit' );
                 break;
