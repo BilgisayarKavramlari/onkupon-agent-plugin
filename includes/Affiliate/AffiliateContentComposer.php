@@ -268,30 +268,23 @@ class AffiliateContentComposer {
             return $empty;
         }
 
-        $response = wp_remote_get(
-            $destination_url,
-            [
-                'timeout'     => 15,
-                'redirection' => 6,
-                'user-agent'  => 'Mozilla/5.0 (compatible; OnKupon-Agent/' . ONKUPON_AGENT_VERSION . '; +' . home_url( '/' ) . ')',
-            ]
-        );
-        if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
-            return $empty;
-        }
+        [ $body, $final ] = $this->fetch_page( $destination_url );
 
-        $body = (string) wp_remote_retrieve_body( $response );
-        if ( '' === $body ) {
-            return $empty;
-        }
-
-        $final = $destination_url;
-        $http = $response['http_response'] ?? null;
-        if ( is_object( $http ) && method_exists( $http, 'get_response_object' ) ) {
-            $object = $http->get_response_object();
-            if ( is_object( $object ) && ! empty( $object->url ) ) {
-                $final = (string) $object->url;
+        // Bazi markalar ortaklik yonlendirme adresine govde dondurmuyor ya da
+        // bot korumasi nedeniyle bos sayfa veriyor. Bu durumda markanin kendi
+        // ana sayfasi dogrudan denenir.
+        if ( '' === trim( $body ) ) {
+            $host = (string) wp_parse_url( $final ?: $destination_url, PHP_URL_HOST );
+            if ( '' !== $host ) {
+                [ $body, $root ] = $this->fetch_page( 'https://' . $host . '/' );
+                if ( '' !== trim( $body ) ) {
+                    $final = $root;
+                }
             }
+        }
+
+        if ( '' === trim( $body ) ) {
+            return $empty;
         }
 
         $title = '';
@@ -322,6 +315,42 @@ class AffiliateContentComposer {
         $summary = self::redact( trim( implode( ' ', array_values( array_unique( array_filter( $parts ) ) ) ) ) );
 
         return [ 'url' => esc_url_raw( $final ), 'title' => $title, 'summary' => mb_substr( $summary, 0, 2000 ) ];
+    }
+
+    /**
+     * Sayfayi tarayici benzeri basliklarla ceker. Durum kodu 200 olmasa bile
+     * govde varsa kullanilir: bot korumasi uygulayan siteler cogu zaman 403
+     * ile birlikte tam HTML dondurur ve o HTML tanitim metnini icerir.
+     *
+     * @return array{0:string,1:string} govde ve son adres
+     */
+    private function fetch_page( string $url ): array {
+        $response = wp_remote_get(
+            $url,
+            [
+                'timeout'     => 15,
+                'redirection' => 6,
+                'user-agent'  => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+                'headers'     => [
+                    'Accept'          => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language' => 'en-US,en;q=0.9,tr;q=0.8',
+                ],
+            ]
+        );
+        if ( is_wp_error( $response ) ) {
+            return [ '', $url ];
+        }
+
+        $final = $url;
+        $http = $response['http_response'] ?? null;
+        if ( is_object( $http ) && method_exists( $http, 'get_response_object' ) ) {
+            $object = $http->get_response_object();
+            if ( is_object( $object ) && ! empty( $object->url ) ) {
+                $final = (string) $object->url;
+            }
+        }
+
+        return [ (string) wp_remote_retrieve_body( $response ), esc_url_raw( $final ) ];
     }
 
     private function clean( string $value ): string {
@@ -370,7 +399,7 @@ PROMPT;
         return [
             'type'                 => 'object',
             'properties'           => $properties,
-            'required'             => array_keys( $properties ),
+            'required'             => [ 'title', 'short_description', 'meta_description', 'intro', 'use_cases' ],
             'additionalProperties' => false,
         ];
     }
