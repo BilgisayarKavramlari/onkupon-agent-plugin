@@ -114,26 +114,34 @@ class AffiliateFeaturedImageGenerator {
 
         $white = [ 255, 255, 255 ];
         $muted = [ 195, 228, 255 ];
-        $this->draw_scaled_text( $image, 'ONKUPON', 3, 74, $white );
-        $this->draw_scaled_text( $image, 'PARTNER TOOL', 2, 126, $muted );
+        $this->draw_scaled_text( $image, 'ONKUPON', 3, 52, $white );
+        $this->draw_scaled_text( $image, 'PARTNER TOOL', 2, 104, $muted );
 
-        $logo_height = 0;
+        $logo_bottom = 0;
         if ( '' !== $logo_path ) {
-            $logo_height = $this->draw_logo( $image, $logo_path );
+            $logo_bottom = $this->draw_logo( $image, $logo_path );
         }
 
-        $safe_name = $this->ascii( $name );
-        $lines = $this->wrap( $safe_name ?: 'DIGITAL TOOL', 22, 3 );
-        $line_height = 82;
-        $start_y = (int) round( ( $height - count( $lines ) * $line_height ) / 2 ) + 34;
-        if ( $logo_height > 0 ) {
-            $start_y = 200 + $logo_height + 30;
+        // Kartta markanin adi yeterlidir; urunun uzun Turkce basligi bu olcude
+        // okunmaz ve kartin disina tasar.
+        $safe_name = $this->ascii( $this->brand_of( $name ) );
+        $max_lines = $logo_bottom > 0 ? 2 : 3;
+        $lines = $this->wrap( $safe_name ?: 'DIGITAL TOOL', 20, $max_lines );
+        $line_height = 76;
+        $block_height = count( $lines ) * $line_height;
+
+        if ( $logo_bottom > 0 ) {
+            $start_y = $logo_bottom + 34;
+        } else {
+            $start_y = (int) round( ( $height - $block_height ) / 2 ) + 20;
         }
+        $start_y = min( $start_y, 520 - $block_height );
+
         foreach ( $lines as $index => $line ) {
             $this->draw_scaled_text( $image, $line, 5, $start_y + $index * $line_height, $white );
         }
 
-        $this->draw_scaled_text( $image, 'OFFICIAL EXTERNAL PRODUCT LINK', 2, 548, $muted );
+        $this->draw_scaled_text( $image, 'OFFICIAL EXTERNAL PRODUCT LINK', 2, 566, $muted );
         $result = imagepng( $image, $path, 8 );
         imagedestroy( $image );
         return $result;
@@ -160,14 +168,14 @@ class AffiliateFeaturedImageGenerator {
             return 0;
         }
 
-        $max = 240;
+        $max = 176;
         $scale = min( $max / $source_width, $max / $source_height );
         $target_width = (int) max( 1, round( $source_width * $scale ) );
         $target_height = (int) max( 1, round( $source_height * $scale ) );
         $x = (int) round( ( 1200 - $target_width ) / 2 );
-        $y = 200;
+        $y = 158;
 
-        $pad = 28;
+        $pad = 22;
         $cushion = imagecolorallocatealpha( $canvas, 255, 255, 255, 18 );
         imagefilledrectangle( $canvas, $x - $pad, $y - $pad, $x + $target_width + $pad, $y + $target_height + $pad, $cushion );
 
@@ -175,7 +183,16 @@ class AffiliateFeaturedImageGenerator {
         imagecopyresampled( $canvas, $logo, $x, $y, 0, 0, $target_width, $target_height, $source_width, $source_height );
         imagedestroy( $logo );
 
-        return $target_height;
+        return $y + $target_height + $pad;
+    }
+
+    /**
+     * Urun basligindan marka adini ayirir.
+     */
+    private function brand_of( string $name ): string {
+        $parts = preg_split( '/\s+(?:\x{2013}|\x{2014}|-|\||:)\s+/u', $name, 2 );
+        $brand = trim( (string) ( $parts[0] ?? $name ) );
+        return '' !== $brand ? $brand : $name;
     }
 
     private function draw_scaled_text( \GdImage $canvas, string $text, int $scale, int $y, array $rgb ): void {
