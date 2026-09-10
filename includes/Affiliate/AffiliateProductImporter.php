@@ -47,24 +47,46 @@ class AffiliateProductImporter {
         }
         $created = ! $existing_id;
         $managed = $existing_id && '1' === (string) get_post_meta( $existing_id, '_onkupon_affiliate_managed', true );
-        $preserve_editorial = $existing_id && '1' === (string) get_post_meta( $existing_id, '_onkupon_affiliate_preserve_editorial', true );
+        $preserve_editorial = $existing_id && '1' === (string) get_post_meta( $existing_id, AffiliateContentComposer::META_PRESERVE, true );
         $settings = Plugin::settings();
-        $description = sanitize_textarea_field( (string) ( $program['description'] ?? '' ) );
-        $offer = sanitize_textarea_field( (string) ( $program['offer_summary'] ?? '' ) );
-        $disclosure = 'Bu harici bağlantı üzerinden yapılan uygun işlemlerden komisyon kazanabiliriz. Fiyat, kapsam ve koşullar hizmet sağlayıcıya aittir.';
-        $full_description = trim( implode( "\n\n", array_filter( [ $description, $offer, $disclosure ] ) ) );
 
-        if ( $created || ( $managed && ! $preserve_editorial ) ) {
+        // Ortaklık şartları (komisyon oranı, süre, ödeme modeli) kamuya açık
+        // hiçbir alana yazılmaz; yalnızca özel meta olarak saklanır.
+        $offer_terms = sanitize_textarea_field( (string) ( $program['offer_summary'] ?? '' ) );
+
+        $description = AffiliateContentComposer::redact( sanitize_textarea_field( (string) ( $program['description'] ?? '' ) ) );
+        $disclosure = AffiliateContentComposer::DISCLOSURE;
+        $fallback_description = trim( implode( "\n\n", array_filter( [ $description, $disclosure ] ) ) );
+
+        $composer = new AffiliateContentComposer();
+        $composed = [];
+        if ( ! $preserve_editorial && ( $created || $managed ) && $composer->needs_content( $existing_id ? $product : null, $program ) ) {
+            $composed = $composer->compose( $program, $referral_url );
+        }
+
+        if ( $composed ) {
+            $product->set_name( sanitize_text_field( (string) $composed['title'] ) );
+            $product->set_catalog_visibility( 'visible' );
+            $product->set_short_description( wp_kses_post( (string) $composed['short'] ) );
+            $product->set_description( wp_kses_post( (string) $composed['long'] ) );
+        } elseif ( $created || ( $managed && ! $preserve_editorial ) ) {
             $product->set_name( $name );
             $product->set_catalog_visibility( 'visible' );
-            $product->set_short_description( wp_trim_words( $description ?: $offer ?: $disclosure, 45, '' ) );
-            $product->set_description( $full_description );
+            $product->set_short_description( AffiliateContentComposer::redact( wp_trim_words( $description ?: $disclosure, 45, '' ) ) );
+            $product->set_description( $fallback_description );
         } else {
-            if ( '' === trim( (string) $product->get_short_description() ) ) {
-                $product->set_short_description( wp_trim_words( $description ?: $offer ?: $disclosure, 45, '' ) );
+            // Elle hazırlanmış içerik korunur, ama gizli şart taşıyorsa ayıklanır.
+            $current_long = (string) $product->get_description();
+            $current_short = (string) $product->get_short_description();
+            if ( '' === trim( wp_strip_all_tags( $current_long ) ) ) {
+                $product->set_description( $fallback_description );
+            } elseif ( AffiliateContentComposer::contains_confidential( $current_long ) ) {
+                $product->set_description( AffiliateContentComposer::redact( $current_long ) );
             }
-            if ( '' === trim( (string) $product->get_description() ) ) {
-                $product->set_description( $full_description );
+            if ( '' === trim( wp_strip_all_tags( $current_short ) ) ) {
+                $product->set_short_description( AffiliateContentComposer::redact( wp_trim_words( $description ?: $disclosure, 45, '' ) ) );
+            } elseif ( AffiliateContentComposer::contains_confidential( $current_short ) ) {
+                $product->set_short_description( AffiliateContentComposer::redact( $current_short ) );
             }
         }
         $product->set_product_url( $referral_url );
@@ -74,9 +96,9 @@ class AffiliateProductImporter {
         } elseif ( ! empty( $settings['partnerstack_auto_publish'] ) && Plugin::can_publish() ) {
             $product->set_status( 'publish' );
         }
-        $category_id = absint( $settings['partnerstack_default_category_id'] ?? 0 );
-        if ( $category_id && term_exists( $category_id, 'product_cat' ) ) {
-            $product->set_category_ids( [ $category_id ] );
+        $category_ids = $this->category_ids( $composed, $composer, $settings, $product, $name . ' ' . $description );
+        if ( $category_ids ) {
+            $product->set_category_ids( $category_ids );
         }
         $product_id = (int) $product->save();
         if ( ! $product_id ) {
@@ -95,10 +117,90 @@ class AffiliateProductImporter {
         if ( ! empty( $program['logo_url'] ) ) {
             update_post_meta( $product_id, '_onkupon_affiliate_logo_url', esc_url_raw( (string) $program['logo_url'] ) );
         }
+
+        if ( '' !== $offer_terms ) {
+            update_post_meta( $product_id, AffiliateContentComposer::META_OFFER_TERMS, $offer_terms );
+        }
+
+        if ( $composed ) {
+            update_post_meta( $product_id, AffiliateContentComposer::META_CONTENT_HASH, sanitize_text_field( (string) ( $program['source_hash'] ?? '' ) ) );
+            if ( ! empty( $composed['tags'] ) ) {
+                wp_set_object_terms( $product_id, array_map( 'sanitize_text_field', (array) $composed['tags'] ), 'product_tag', false );
+            }
+            $this->apply_seo( $product_id, $composed );
+        }
+        $this->scrub_seo_meta( $product_id );
+
         $product->set_product_url( AffiliateClickTracker::tracking_url( $product_id ) );
         $product->save();
-        ( new AffiliateFeaturedImageGenerator() )->ensure( $product_id );
+        ( new AffiliateImageResolver() )->ensure( $product_id, $program );
         return [ 'created' => $created, 'product_id' => $product_id ];
+    }
+
+    /**
+     * Kategori seçimi: önce üretilen içerik, sonra deterministik anahtar kelime
+     * eşlemesi, sonra ayarlardaki varsayılan. WooCommerce'in "uncategorized"
+     * terimi (sitede "Kurslar" adıyla görünür) hiçbir koşulda atanmaz.
+     *
+     * @return int[]
+     */
+    private function category_ids( array $composed, AffiliateContentComposer $composer, array $settings, $product, string $context ): array {
+        if ( ! empty( $composed['category_ids'] ) ) {
+            return array_map( 'absint', (array) $composed['category_ids'] );
+        }
+
+        $existing = array_map( 'absint', (array) $product->get_category_ids() );
+        $default_term = get_term_by( 'slug', 'uncategorized', 'product_cat' );
+        $default_id = ( $default_term && ! is_wp_error( $default_term ) ) ? (int) $default_term->term_id : 0;
+        $meaningful = array_values( array_diff( $existing, [ $default_id, 0 ] ) );
+        if ( $meaningful ) {
+            return $meaningful;
+        }
+
+        $mapped = $composer->keyword_category_ids( $context );
+        if ( $mapped ) {
+            return $mapped;
+        }
+
+        $configured = absint( $settings['partnerstack_default_category_id'] ?? 0 );
+        if ( $configured && $configured !== $default_id && term_exists( $configured, 'product_cat' ) ) {
+            return [ $configured ];
+        }
+
+        return [];
+    }
+
+    private function apply_seo( int $product_id, array $composed ): void {
+        $seo = [
+            'seo_title'        => (string) ( $composed['title'] ?? '' ),
+            'meta_description' => (string) ( $composed['meta_description'] ?? '' ),
+            'focus_keyphrase'  => (string) ( $composed['focus_keyphrase'] ?? '' ),
+        ];
+
+        $adapter = new \OnKupon\Agent\SEO\AIOSEOAdapter();
+        if ( $adapter->is_available() ) {
+            $adapter->apply( $product_id, $seo );
+        }
+    }
+
+    /**
+     * SEO alanları çoğu kurulumda ürün özetinden türetilir; yine de daha önce
+     * kalıcı olarak yazılmış bir değer varsa ticari şartlardan arındırılır.
+     */
+    private function scrub_seo_meta( int $product_id ): void {
+        $keys = [ '_aioseo_title', '_aioseo_description', '_aioseo_og_title', '_aioseo_og_description', '_aioseo_twitter_title', '_aioseo_twitter_description', '_aioseo_keywords' ];
+        foreach ( $keys as $key ) {
+            $value = (string) get_post_meta( $product_id, $key, true );
+            if ( '' === $value || ! AffiliateContentComposer::contains_confidential( $value ) ) {
+                continue;
+            }
+            $clean = AffiliateContentComposer::redact( $value );
+            if ( '' === $clean ) {
+                delete_post_meta( $product_id, $key );
+            } else {
+                update_post_meta( $product_id, $key, sanitize_text_field( $clean ) );
+            }
+        }
     }
 
     private function find_product_id( string $key, string $name, string $referral_url ): int {
