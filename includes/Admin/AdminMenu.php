@@ -41,6 +41,7 @@ class AdminMenu {
             'Affiliate Programs'   => AffiliateProgramsPage::class,
             'Program Discovery'    => ProgramDiscoveryPage::class,
             'SEO Health'           => SEOHealthPage::class,
+            'Quality'              => QualityPage::class,
             'Social Queue'         => SocialQueuePage::class,
             'Analytics'            => AnalyticsPage::class,
             'Learning'             => LearningPage::class,
@@ -149,6 +150,10 @@ class AdminMenu {
                 break;
             case 'run-affiliate-enrichment-now':
                 ( new \OnKupon\Agent\Affiliate\AffiliateEnrichmentService() )->run();
+                break;
+            case 'run-quality-audit-now':
+                ( new \OnKupon\Agent\Quality\QualityAuditService() )->run();
+                $redirect_args = [ 'page' => 'onkupon-agent-quality', 'oka_notice' => 'ok' ];
                 break;
             case 'run-revenue-link-audit-now':
                 $bridge->enqueue( 'onkupon_agent_revenue_link_audit' );

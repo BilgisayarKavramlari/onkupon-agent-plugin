@@ -113,7 +113,7 @@ class AffiliateImageResolver {
             // Ekran görüntüsü servisine yalnızca markanın herkese açık ana sayfası
             // gönderilir; ortaklık kimliğimizi taşıyan yönlendirme adresi değil.
             $host = (string) wp_parse_url( $destination, PHP_URL_HOST );
-            if ( '' !== $host ) {
+            if ( '' !== $host && $this->screenshot_usable( $host ) ) {
                 $candidates[] = [
                     'url'    => 'https://s.wordpress.com/mshots/v1/' . rawurlencode( 'https://' . $host . '/' ) . '?w=1200&h=630',
                     'source' => 'screenshot',
@@ -232,6 +232,11 @@ class AffiliateImageResolver {
             return 0;
         }
 
+        if ( 'screenshot' === $source && self::looks_blank( $temp ) ) {
+            @unlink( $temp );
+            return 0;
+        }
+
         $extension = image_type_to_extension( (int) $info[2], false );
         if ( ! in_array( $extension, [ 'jpeg', 'jpg', 'png', 'webp', 'gif' ], true ) ) {
             @unlink( $temp );
@@ -253,6 +258,98 @@ class AffiliateImageResolver {
         update_post_meta( (int) $attachment_id, '_wp_attachment_image_alt', sanitize_text_field( $name . ' ürün görseli' ) );
         update_post_meta( (int) $attachment_id, '_onkupon_agent_generated_asset', 'affiliate_' . $source );
         return (int) $attachment_id;
+    }
+
+    /**
+     * Ekran goruntusu servisine gondermeden once hedefin gercekten sayfa
+     * gosterip gostermedigini denetler. Cloudflare gibi bot dogrulama
+     * katmanlari "robot musunuz" ekrani dondurur; o ekranin goruntusu urun
+     * gorseli olarak yapistirilirsa katalog kalitesi bozulur.
+     */
+    private function screenshot_usable( string $host ): bool {
+        $response = wp_remote_get(
+            'https://' . $host . '/',
+            [
+                'timeout'     => 12,
+                'redirection' => 5,
+                'user-agent'  => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+                'headers'     => [ 'Accept' => 'text/html,application/xhtml+xml' ],
+            ]
+        );
+        if ( is_wp_error( $response ) ) {
+            return false;
+        }
+
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        if ( in_array( $code, [ 401, 403, 429, 503 ], true ) ) {
+            return false;
+        }
+
+        $body = (string) wp_remote_retrieve_body( $response );
+        if ( '' === trim( $body ) ) {
+            return false;
+        }
+
+        $markers = [
+            'cf-browser-verification',
+            'challenge-platform',
+            '__cf_chl',
+            'cf_chl_opt',
+            'Just a moment',
+            'Checking your browser',
+            'Attention Required',
+            'Enable JavaScript and cookies to continue',
+            'g-recaptcha',
+            'hcaptcha',
+            'Verifying you are human',
+        ];
+        foreach ( $markers as $marker ) {
+            if ( false !== stripos( $body, $marker ) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Neredeyse tek renk olan gorselleri eler. Bot dogrulama ekrani, hata
+     * sayfasi veya yuklenememis sayfa goruntusu tipik olarak boyle gorunur.
+     */
+    public static function looks_blank( string $path ): bool {
+        if ( ! function_exists( 'imagecreatefromstring' ) ) {
+            return false;
+        }
+        $data = @file_get_contents( $path );
+        if ( false === $data ) {
+            return false;
+        }
+        $image = @imagecreatefromstring( $data );
+        if ( ! $image ) {
+            return false;
+        }
+
+        $width = imagesx( $image );
+        $height = imagesy( $image );
+        $buckets = [];
+        $samples = 0;
+        for ( $x = 2; $x < $width; $x += max( 1, (int) floor( $width / 32 ) ) ) {
+            for ( $y = 2; $y < $height; $y += max( 1, (int) floor( $height / 18 ) ) ) {
+                $rgb = imagecolorat( $image, $x, $y );
+                $key = ( ( $rgb >> 20 ) & 0xF ) . '-' . ( ( $rgb >> 12 ) & 0xF ) . '-' . ( ( $rgb >> 4 ) & 0xF );
+                $buckets[ $key ] = ( $buckets[ $key ] ?? 0 ) + 1;
+                ++$samples;
+            }
+        }
+        imagedestroy( $image );
+
+        if ( $samples < 20 ) {
+            return false;
+        }
+        arsort( $buckets );
+        $dominant = (int) reset( $buckets );
+
+        return count( $buckets ) < 6 || ( $dominant / $samples ) > 0.92;
     }
 
     private function is_generated_card( int $attachment_id ): bool {
