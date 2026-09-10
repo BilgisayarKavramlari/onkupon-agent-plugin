@@ -45,7 +45,9 @@ class AffiliateEnrichmentService {
             }
 
             try {
-                $composed = $composer->compose( $program, $program['referral_url'] );
+                $needs_text = '' === (string) get_post_meta( $product_id, AffiliateContentComposer::META_CONTENT_HASH, true )
+                    && $composer->needs_content( $product, $program );
+                $composed = $needs_text ? $composer->compose( $program, $program['referral_url'] ) : [];
                 if ( $composed ) {
                     $product->set_name( sanitize_text_field( (string) $composed['title'] ) );
                     $product->set_short_description( wp_kses_post( (string) $composed['short'] ) );
@@ -72,10 +74,13 @@ class AffiliateEnrichmentService {
                     }
                     ++$summary['enriched'];
                     $summary['product_ids'][] = $product_id;
-                } else {
+                } elseif ( $needs_text ) {
                     ++$summary['failed'];
                 }
 
+                // Bu servis zaten yalnizca eksik urunleri ele aliyor; gorsel
+                // icin 12 saatlik bekleme penceresi burada gecerli degil.
+                delete_post_meta( $product_id, AffiliateImageResolver::META_CHECKED );
                 $resolver->ensure( $product_id, $program );
             } catch ( \Throwable $e ) {
                 ++$summary['failed'];
@@ -124,14 +129,19 @@ class AffiliateEnrichmentService {
             if ( '1' === (string) get_post_meta( $product_id, AffiliateContentComposer::META_PRESERVE, true ) ) {
                 continue;
             }
-            if ( (string) get_post_meta( $product_id, AffiliateContentComposer::META_CONTENT_HASH, true ) !== '' ) {
-                continue;
-            }
             $product = wc_get_product( $product_id );
             if ( ! $product ) {
                 continue;
             }
-            if ( $composer->needs_content( $product, [ 'source_hash' => (string) get_post_meta( $product_id, '_onkupon_affiliate_source_hash', true ) ] ) ) {
+
+            $has_text = '' !== (string) get_post_meta( $product_id, AffiliateContentComposer::META_CONTENT_HASH, true );
+            $needs_text = ! $has_text && $composer->needs_content( $product, [ 'source_hash' => (string) get_post_meta( $product_id, '_onkupon_affiliate_source_hash', true ) ] );
+
+            // Gorseli hala ajanin urettigi gradyan kart olan urun de eksiktir.
+            $image_id = (int) $product->get_image_id();
+            $needs_image = ! $image_id || 'affiliate_card' === (string) get_post_meta( $image_id, '_onkupon_agent_generated_asset', true );
+
+            if ( $needs_text || $needs_image ) {
                 $pending[] = $product_id;
             }
         }
