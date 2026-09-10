@@ -139,11 +139,8 @@ class QualityAuditService {
             $asset = (string) get_post_meta( $image_id, '_onkupon_agent_generated_asset', true );
             if ( 'affiliate_card' === $asset ) {
                 $issues[] = 'image_placeholder';
-            } elseif ( 'affiliate_screenshot' === $asset ) {
-                $path = get_attached_file( $image_id );
-                if ( $path && file_exists( $path ) && AffiliateImageResolver::looks_blank( $path ) ) {
-                    $issues[] = 'image_challenge_shot';
-                }
+            } elseif ( 'affiliate_screenshot' === $asset && AffiliateImageResolver::is_placeholder( $image_id ) ) {
+                $issues[] = 'image_challenge_shot';
             }
         }
 

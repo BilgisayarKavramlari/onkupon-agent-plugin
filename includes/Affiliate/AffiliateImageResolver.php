@@ -41,7 +41,7 @@ class AffiliateImageResolver {
         }
 
         $current = (int) $product->get_image_id();
-        if ( $current && ! $this->is_generated_card( $current ) ) {
+        if ( $current && ! self::is_placeholder( $current ) ) {
             return $current;
         }
 
@@ -80,15 +80,16 @@ class AffiliateImageResolver {
         }
 
         update_post_meta( $product_id, self::META_CHECKED, current_time( 'mysql' ) );
-        if ( $current ) {
-            return $current;
-        }
 
-        $fallback = ( new AffiliateFeaturedImageGenerator() )->ensure( $product_id );
+        // Hicbir gercek gorsel bulunamadi. Marka logosuyla kart uretilir;
+        // mevcut gorsel degistirilebilir durumdaysa uzerine yazilir.
+        $logo = $this->logo_candidate( $destination, $program );
+        $fallback = ( new AffiliateFeaturedImageGenerator() )->ensure( $product_id, $logo, (bool) $current );
         if ( $fallback ) {
-            update_post_meta( $product_id, self::META_SOURCE, 'generated_card' );
+            update_post_meta( $product_id, self::META_SOURCE, $logo ? 'generated_card_logo' : 'generated_card' );
+            return $fallback;
         }
-        return $fallback;
+        return $current;
     }
 
     /**
@@ -352,8 +353,37 @@ class AffiliateImageResolver {
         return count( $buckets ) < 6 || ( $dominant / $samples ) > 0.92;
     }
 
-    private function is_generated_card( int $attachment_id ): bool {
-        return 'affiliate_card' === (string) get_post_meta( $attachment_id, '_onkupon_agent_generated_asset', true );
+    /**
+     * Degistirilebilir gorseller: ajanin kendi urettigi gradyan kart ve
+     * neredeyse bos cikan ekran goruntusu (bot dogrulama ekrani gibi).
+     * Elle yuklenmis ya da gercek bir marka gorseli asla degistirilmez.
+     */
+    public static function is_placeholder( int $attachment_id ): bool {
+        $asset = (string) get_post_meta( $attachment_id, '_onkupon_agent_generated_asset', true );
+        if ( 'affiliate_card' === $asset ) {
+            return true;
+        }
+        if ( 'affiliate_screenshot' === $asset ) {
+            $path = get_attached_file( $attachment_id );
+            return $path && file_exists( $path ) && self::looks_blank( $path );
+        }
+        return false;
+    }
+
+    /**
+     * Kart uzerine basilacak logo adresi: once PartnerStack'in verdigi logo,
+     * yoksa alan adina dayali favicon servisi.
+     */
+    private function logo_candidate( string $destination, array $program ): string {
+        $logo = esc_url_raw( (string) ( $program['logo_url'] ?? '' ) );
+        if ( '' !== $logo ) {
+            return $logo;
+        }
+        $host = (string) wp_parse_url( $destination, PHP_URL_HOST );
+        if ( '' === $host ) {
+            return '';
+        }
+        return 'https://www.google.com/s2/favicons?domain=' . rawurlencode( $host ) . '&sz=256';
     }
 
     private function user_agent(): string {

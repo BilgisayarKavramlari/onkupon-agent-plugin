@@ -139,7 +139,7 @@ class AffiliateEnrichmentService {
 
             // Gorseli hala ajanin urettigi gradyan kart olan urun de eksiktir.
             $image_id = (int) $product->get_image_id();
-            $needs_image = ! $image_id || 'affiliate_card' === (string) get_post_meta( $image_id, '_onkupon_agent_generated_asset', true );
+            $needs_image = ! $image_id || AffiliateImageResolver::is_placeholder( $image_id );
 
             if ( $needs_text || $needs_image ) {
                 $pending[] = $product_id;

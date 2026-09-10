@@ -4,12 +4,12 @@ namespace OnKupon\Agent\Affiliate;
 use OnKupon\Agent\Logging\Logger;
 
 class AffiliateFeaturedImageGenerator {
-    public function ensure( int $product_id ): int {
+    public function ensure( int $product_id, string $logo_url = '', bool $force = false ): int {
         $product = wc_get_product( $product_id );
         if ( ! $product || 'partnerstack' !== get_post_meta( $product_id, '_onkupon_affiliate_provider', true ) ) {
             return 0;
         }
-        if ( $product->get_image_id() ) {
+        if ( ! $force && $product->get_image_id() ) {
             return (int) $product->get_image_id();
         }
         if ( ! function_exists( 'imagecreatetruecolor' ) || ! function_exists( 'imagepng' ) ) {
@@ -29,11 +29,19 @@ class AffiliateFeaturedImageGenerator {
         }
 
         $source_hash = sanitize_text_field( (string) get_post_meta( $product_id, '_onkupon_affiliate_source_hash', true ) );
-        $filename = sanitize_file_name( $product->get_name() . '-' . $product_id . '-' . substr( $source_hash, 0, 8 ) . '.png' );
+        $logo_path = $this->fetch_logo( $logo_url );
+        $suffix = $logo_path ? '-logo' : '';
+        $filename = sanitize_file_name( $product->get_name() . '-' . $product_id . '-' . substr( $source_hash, 0, 8 ) . $suffix . '.png' );
         $path = trailingslashit( $directory ) . $filename;
-        if ( ! $this->render( $path, $product->get_name(), $source_hash ?: (string) $product_id ) ) {
+        if ( ! $this->render( $path, $product->get_name(), $source_hash ?: (string) $product_id, $logo_path ) ) {
+            if ( $logo_path ) {
+                @unlink( $logo_path );
+            }
             $this->failure( $product_id, 'Affiliate card rendering failed' );
             return 0;
+        }
+        if ( $logo_path ) {
+            @unlink( $logo_path );
         }
 
         $attachment_id = $this->attach( $path, $product_id, $product->get_name(), $source_hash );
@@ -46,7 +54,37 @@ class AffiliateFeaturedImageGenerator {
         return $attachment_id;
     }
 
-    private function render( string $path, string $name, string $seed ): bool {
+    /**
+     * Marka logosunu indirir. Hedef sitesi bot korumasi ardindaysa kendi
+     * sayfasindan gorsel alinamaz; bu durumda favicon servisi markanin gercek
+     * simgesini yeterli cozunurlukte verir ve kart en azindan taninabilir olur.
+     */
+    private function fetch_logo( string $logo_url ): string {
+        $logo_url = esc_url_raw( $logo_url );
+        if ( '' === $logo_url ) {
+            return '';
+        }
+        $response = wp_remote_get( $logo_url, [ 'timeout' => 15, 'redirection' => 5, 'user-agent' => 'Mozilla/5.0 (compatible; OnKupon-Agent/' . ONKUPON_AGENT_VERSION . ')' ] );
+        if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+            return '';
+        }
+        $body = (string) wp_remote_retrieve_body( $response );
+        if ( strlen( $body ) < 300 ) {
+            return '';
+        }
+        $temp = wp_tempnam( 'onkupon-logo' );
+        if ( ! $temp || false === file_put_contents( $temp, $body ) ) {
+            return '';
+        }
+        $info = @getimagesize( $temp );
+        if ( ! is_array( $info ) || (int) ( $info[0] ?? 0 ) < 48 ) {
+            @unlink( $temp );
+            return '';
+        }
+        return $temp;
+    }
+
+    private function render( string $path, string $name, string $seed, string $logo_path = '' ): bool {
         $width = 1200;
         $height = 630;
         $image = imagecreatetruecolor( $width, $height );
@@ -79,10 +117,18 @@ class AffiliateFeaturedImageGenerator {
         $this->draw_scaled_text( $image, 'ONKUPON', 3, 74, $white );
         $this->draw_scaled_text( $image, 'PARTNER TOOL', 2, 126, $muted );
 
+        $logo_height = 0;
+        if ( '' !== $logo_path ) {
+            $logo_height = $this->draw_logo( $image, $logo_path );
+        }
+
         $safe_name = $this->ascii( $name );
         $lines = $this->wrap( $safe_name ?: 'DIGITAL TOOL', 22, 3 );
         $line_height = 82;
         $start_y = (int) round( ( $height - count( $lines ) * $line_height ) / 2 ) + 34;
+        if ( $logo_height > 0 ) {
+            $start_y = 200 + $logo_height + 30;
+        }
         foreach ( $lines as $index => $line ) {
             $this->draw_scaled_text( $image, $line, 5, $start_y + $index * $line_height, $white );
         }
@@ -91,6 +137,45 @@ class AffiliateFeaturedImageGenerator {
         $result = imagepng( $image, $path, 8 );
         imagedestroy( $image );
         return $result;
+    }
+
+    /**
+     * Logoyu kartin ust orta bolgesine, oranini bozmadan yerlestirir.
+     * Geriye cizilen yuksekligi dondurur ki marka adi altina hizalanabilsin.
+     */
+    private function draw_logo( \GdImage $canvas, string $logo_path ): int {
+        $data = @file_get_contents( $logo_path );
+        if ( false === $data ) {
+            return 0;
+        }
+        $logo = @imagecreatefromstring( $data );
+        if ( ! $logo ) {
+            return 0;
+        }
+
+        $source_width = imagesx( $logo );
+        $source_height = imagesy( $logo );
+        if ( $source_width < 1 || $source_height < 1 ) {
+            imagedestroy( $logo );
+            return 0;
+        }
+
+        $max = 240;
+        $scale = min( $max / $source_width, $max / $source_height );
+        $target_width = (int) max( 1, round( $source_width * $scale ) );
+        $target_height = (int) max( 1, round( $source_height * $scale ) );
+        $x = (int) round( ( 1200 - $target_width ) / 2 );
+        $y = 200;
+
+        $pad = 28;
+        $cushion = imagecolorallocatealpha( $canvas, 255, 255, 255, 18 );
+        imagefilledrectangle( $canvas, $x - $pad, $y - $pad, $x + $target_width + $pad, $y + $target_height + $pad, $cushion );
+
+        imagealphablending( $canvas, true );
+        imagecopyresampled( $canvas, $logo, $x, $y, 0, 0, $target_width, $target_height, $source_width, $source_height );
+        imagedestroy( $logo );
+
+        return $target_height;
     }
 
     private function draw_scaled_text( \GdImage $canvas, string $text, int $scale, int $y, array $rgb ): void {
