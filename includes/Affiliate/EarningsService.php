@@ -80,8 +80,16 @@ class EarningsService {
         uasort( $programs, static fn( $a, $b ): int => $b['outstanding'] <=> $a['outstanding'] );
 
         $payout_rows = [];
+        $payout_paid = 0.0;
+        $payout_open = 0.0;
         foreach ( (array) ( $payouts['items'] ?? [] ) as $row ) {
-            $payout_rows[] = $this->normalize_payout( $row );
+            $payout = $this->normalize_payout( $row );
+            $payout_rows[] = $payout;
+            if ( in_array( strtolower( $payout['status'] ), [ 'successful', 'paid', 'complete', 'completed', 'settled' ], true ) ) {
+                $payout_paid += $payout['amount'];
+            } else {
+                $payout_open += $payout['amount'];
+            }
         }
         usort( $payout_rows, static fn( $a, $b ): int => strcmp( (string) $b['created_at'], (string) $a['created_at'] ) );
 
@@ -95,6 +103,10 @@ class EarningsService {
                 'declined'    => round( $totals['declined'], 2 ),
                 'outstanding' => round( $totals['pending'] + $totals['approved'], 2 ),
                 'count'       => (int) $totals['count'],
+                // Odeme uclari kazanc kayitlarindan bagimsizdir: gecmiste
+                // odenmis kazanclar rewards listesinde artik gorunmeyebilir.
+                'payout_paid' => round( $payout_paid, 2 ),
+                'payout_open' => round( $payout_open, 2 ),
             ],
             'programs'     => array_values( $programs ),
             'payouts'      => array_slice( $payout_rows, 0, 40 ),
@@ -163,8 +175,27 @@ class EarningsService {
             'amount'     => round( $amount, 2 ),
             'bucket'     => $bucket,
             'currency'   => sanitize_text_field( (string) ( $row['currency'] ?? 'USD' ) ),
-            'created_at' => sanitize_text_field( (string) ( $row['created_at'] ?? $row['created'] ?? '' ) ),
+            'created_at' => $this->normalize_date( $row['created_at'] ?? $row['created'] ?? '' ),
         ];
+    }
+
+    /**
+     * PartnerStack tarihleri kimi uclarda epoch saniye, kimilerinde epoch
+     * milisaniye, kimilerinde ISO metin doner. Hepsi tek bicime indirilir.
+     */
+    private function normalize_date( $value ): string {
+        if ( is_numeric( $value ) ) {
+            $timestamp = (float) $value;
+            if ( $timestamp > 100000000000 ) {
+                $timestamp = $timestamp / 1000;
+            }
+            if ( $timestamp > 0 ) {
+                return gmdate( 'Y-m-d', (int) $timestamp );
+            }
+            return '';
+        }
+        $text = sanitize_text_field( (string) $value );
+        return '' !== $text ? substr( $text, 0, 10 ) : '';
     }
 
     private function normalize_payout( array $row ): array {
@@ -183,7 +214,7 @@ class EarningsService {
             'amount'     => round( $amount, 2 ),
             'currency'   => sanitize_text_field( (string) ( $row['currency'] ?? 'USD' ) ),
             'status'     => sanitize_text_field( (string) ( $row['status'] ?? $row['state'] ?? '' ) ),
-            'created_at' => sanitize_text_field( (string) ( $row['created_at'] ?? $row['created'] ?? '' ) ),
+            'created_at' => $this->normalize_date( $row['created_at'] ?? $row['created'] ?? '' ),
         ];
     }
 
