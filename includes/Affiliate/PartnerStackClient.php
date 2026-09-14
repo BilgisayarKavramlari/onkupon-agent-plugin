@@ -176,6 +176,88 @@ class PartnerStackClient {
         ];
     }
 
+    /**
+     * Kazanc kayitlari: program basina hak edilen, onaylanan ve odenen tutarlar.
+     * Partner API bu uclari salt okunur sunar; odeme baslatilamaz.
+     */
+    public function list_rewards( int $limit = 500 ): array {
+        return $this->fetch_collection( '/rewards', 'partnerstack_rewards', $limit );
+    }
+
+    public function list_transactions( int $limit = 500 ): array {
+        return $this->fetch_collection( '/transactions', 'partnerstack_transactions', $limit );
+    }
+
+    public function list_payouts( int $limit = 200 ): array {
+        return $this->fetch_collection( '/payouts', 'partnerstack_payouts', $limit );
+    }
+
+    /**
+     * Sayfali bir koleksiyonu ham haliyle ceker. Normalizasyon cagirana
+     * birakilir; PartnerStack alan adlari uctan uca ayni degil.
+     */
+    private function fetch_collection( string $path, string $rate_key, int $limit ): array {
+        if ( ! $this->configured() ) {
+            return $this->failure( 'PartnerStack API key is not configured', 'configuration' );
+        }
+        if ( ! ( new RateLimiter() )->allow( $rate_key, 12, HOUR_IN_SECONDS ) ) {
+            return $this->failure( 'PartnerStack request rate limit reached', 'rate_limit' );
+        }
+
+        $remaining = max( 1, min( 1000, $limit ) );
+        $cursor = '';
+        $items = [];
+        $guard = 0;
+
+        while ( $remaining > 0 && $guard < 12 ) {
+            ++$guard;
+            $query = [ 'limit' => min( 100, $remaining ) ];
+            if ( '' !== $cursor ) {
+                $query['starting_after'] = $cursor;
+            }
+
+            $response = wp_remote_get(
+                add_query_arg( $query, self::BASE_URL . $path ),
+                [
+                    'timeout' => 30,
+                    'headers' => [
+                        'Accept' => 'application/json',
+                        'Authorization' => 'Bearer ' . $this->api_key(),
+                        'User-Agent' => 'OnKupon-Agent/' . ONKUPON_AGENT_VERSION . '; ' . home_url( '/' ),
+                    ],
+                ]
+            );
+            if ( is_wp_error( $response ) ) {
+                return $this->failure( 'PartnerStack transport error: ' . $response->get_error_message(), 'transport' );
+            }
+
+            $status_code = (int) wp_remote_retrieve_response_code( $response );
+            $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
+            if ( $status_code < 200 || $status_code >= 300 || ! is_array( $decoded ) ) {
+                $message = sanitize_text_field( (string) ( $decoded['message'] ?? 'PartnerStack returned HTTP ' . $status_code ) );
+                return $this->failure( $message, 'api', [ 'status_code' => $status_code, 'path' => $path ] );
+            }
+
+            $data = $decoded['data'] ?? [];
+            $page_items = is_array( $data['items'] ?? null ) ? $data['items'] : ( is_array( $data ) && array_is_list( $data ) ? $data : [] );
+            foreach ( $page_items as $item ) {
+                if ( is_array( $item ) ) {
+                    $items[] = $item;
+                }
+            }
+
+            $remaining -= max( 1, count( $page_items ) );
+            $last = end( $page_items );
+            $next_cursor = is_array( $last ) ? sanitize_text_field( (string) ( $last['key'] ?? $last['id'] ?? '' ) ) : '';
+            if ( empty( $data['has_more'] ) || '' === $next_cursor || $next_cursor === $cursor || ! $page_items ) {
+                break;
+            }
+            $cursor = $next_cursor;
+        }
+
+        return [ 'ok' => true, 'items' => $items, 'complete' => true, 'error' => '' ];
+    }
+
     private function pick( array $row, array $keys ) {
         foreach ( $keys as $key ) {
             if ( isset( $row[ $key ] ) && '' !== $row[ $key ] && null !== $row[ $key ] ) {
