@@ -25,6 +25,7 @@ class AffiliateProgramsPage extends BasePage {
                 '<a href="' . esc_url( get_edit_post_link( $post->ID ) ) . '">' . esc_html( get_the_title( $post->ID ) ) . '</a>',
                 esc_html( get_post_status( $post->ID ) ),
                 '0' === (string) get_post_meta( $post->ID, '_onkupon_affiliate_active', true ) ? 'inactive / hidden' : 'active',
+                esc_html( (string) get_post_meta( $post->ID, '_onkupon_partnerstack_status', true ) ?: '-' ),
                 '<a href="' . $destination . '" rel="noreferrer noopener">' . esc_html( wp_parse_url( $destination, PHP_URL_HOST ) ?: 'link' ) . '</a>',
                 '<a href="' . esc_url( 'publish' === get_post_status( $post->ID ) ? get_permalink( $post->ID ) : get_preview_post_link( $post->ID ) ) . '">Review</a>',
                 esc_html( (string) get_post_meta( $post->ID, '_onkupon_affiliate_last_synced_at', true ) ),
@@ -75,7 +76,7 @@ class AffiliateProgramsPage extends BasePage {
             ]
         );
         echo '<p>' . esc_html__( 'PartnerStack products are idempotently imported as WooCommerce external products. New records remain drafts unless auto publish is enabled and the agent is running outside Safe Mode. Affiliate clicks are recorded as aggregate metrics without visitor profiling.', 'onkupon-agent' ) . '</p>';
-        $this->table( [ 'Product', 'Status', 'Agreement', 'Destination host', 'Page', 'Last synced' ], $rows );
+        $this->table( [ 'Product', 'Status', 'Agreement', 'PartnerStack durumu', 'Destination host', 'Page', 'Last synced' ], $rows );
         echo '<h2>' . esc_html__( 'Other Revenue Links', 'onkupon-agent' ) . '</h2>';
         echo '<p>' . esc_html__( 'These links have a recognized affiliate tracking structure. Structural verification does not confirm an active contract or guarantee commission.', 'onkupon-agent' ) . '</p>';
         $this->table( [ 'Product', 'Provider', 'Link status', 'Confidence', 'Destination host', 'Page', 'Last checked' ], $revenue_rows );

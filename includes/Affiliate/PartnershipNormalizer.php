@@ -25,8 +25,7 @@ class PartnershipNormalizer {
             2000
         );
         $status = strtolower( $this->first_string( [ $item['status'] ?? '', $item['state'] ?? '', $company['status'] ?? '' ] ) );
-        $inactive = in_array( $status, [ 'archived', 'inactive', 'disabled', 'rejected', 'declined', 'canceled', 'cancelled', 'suspended', 'paused', 'on_hold', 'on hold', 'terminated', 'ended', 'expired', 'revoked', 'closed', 'churned', 'deactivated' ], true );
-        $active = empty( $item['archived'] ) && empty( $item['is_archived'] ) && ! $inactive;
+        $active = $this->is_publishable( $status, $item );
         $url = $this->referral_url( $item, $company );
         $logo = $this->https_url( $this->first_string( [ $company['logo_url'] ?? '', $company['logo'] ?? '', $program['logo_url'] ?? '' ] ) );
 
@@ -42,6 +41,55 @@ class PartnershipNormalizer {
         ];
         $normalized['source_hash'] = hash( 'sha256', json_encode( $normalized, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) ?: '' );
         return $normalized;
+    }
+
+    /**
+     * Bir ortakligin urun olarak yayimlanabilir olup olmadigina karar verir.
+     *
+     * Onceki surum yalnizca tam eslesen bir kara liste kullaniyordu; bu yuzden
+     * PartnerStack'in "application_declined", "application_pending" ve
+     * "program_ended" gibi bilesik durum kodlari taninmadi ve sozlesmesi bitmis
+     * programlarin baglantilari sitede yayinda kaldi. Karar artik uc asamalidir:
+     *
+     * 1. Durum metni olumsuz bir belirtec iceriyorsa yayimlanmaz.
+     * 2. Durum bossa ya da olumlu bir belirtec iceriyorsa yayimlanir.
+     * 3. Taninmayan her durum yayimlanmaz.
+     *
+     * Ucuncu kural bilincli olarak temkinlidir: taninmayan bir durumda urunu
+     * gizlemek, gecersiz bir ortaklik baglantisini ziyaretciye gostermekten
+     * daha az maliyetlidir.
+     */
+    private function is_publishable( string $status, array $item ): bool {
+        if ( ! empty( $item['archived'] ) || ! empty( $item['is_archived'] ) ) {
+            return false;
+        }
+
+        $flat = trim( str_replace( array( '_', '-' ), ' ', $status ) );
+
+        $blocking = array(
+            'declin', 'reject', 'denied', 'refus', 'ended', 'cancel', 'suspend',
+            'paus', 'expir', 'terminat', 'archiv', 'revok', 'closed', 'churn',
+            'deactiv', 'inactive', 'disabl', 'hold', 'pending', 'applied',
+            'awaiting', 'invit', 'withdraw', 'removed', 'blocked', 'banned',
+        );
+        foreach ( $blocking as $token ) {
+            if ( false !== strpos( $flat, $token ) ) {
+                return false;
+            }
+        }
+
+        if ( '' === $flat ) {
+            return true;
+        }
+
+        $allowed = array( 'active', 'approved', 'accepted', 'live', 'joined', 'enabled', 'enrolled', 'connected' );
+        foreach ( $allowed as $token ) {
+            if ( false !== strpos( $flat, $token ) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function referral_url( array $item, array $company ): string {

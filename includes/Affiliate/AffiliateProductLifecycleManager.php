@@ -30,6 +30,7 @@ class AffiliateProductLifecycleManager {
             $program = $programs_by_key[ $key ] ?? null;
             if ( is_array( $program ) ) {
                 delete_post_meta( $product_id, '_onkupon_partnerstack_missing_count' );
+                update_post_meta( $product_id, '_onkupon_partnerstack_status', sanitize_text_field( (string) ( $program['status'] ?? '' ) ) );
                 if ( empty( $program['active'] ) ) {
                     if ( $this->deactivate( $product_id, 'partnerstack_inactive' ) ) {
                         $summary['deactivated']++;
@@ -45,6 +46,7 @@ class AffiliateProductLifecycleManager {
             if ( ! $complete_snapshot || '0' === (string) get_post_meta( $product_id, '_onkupon_affiliate_active', true ) ) {
                 continue;
             }
+            update_post_meta( $product_id, '_onkupon_partnerstack_status', 'missing_from_snapshot' );
             $missing_count = 1 + absint( get_post_meta( $product_id, '_onkupon_partnerstack_missing_count', true ) );
             update_post_meta( $product_id, '_onkupon_partnerstack_missing_count', $missing_count );
             if ( $missing_count < $missing_threshold ) {
